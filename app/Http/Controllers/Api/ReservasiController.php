@@ -97,6 +97,7 @@ class ReservasiController extends Controller
         }        
 
         $updateData = $request->all();
+        // print_r($updateData['id_meja']);exit;
         $validate = Validator::make($updateData,[
             'tgl_reservasi' => 'required|date_format:Y-m-d',
             'jam_reservasi' => 'required',
@@ -109,14 +110,15 @@ class ReservasiController extends Controller
             $status_baru = 'Tidak Tersedia';
             $status_lama = 'Tersedia';
             // update meja lama
-            $meja_lama = Meja::where('id_meja', $reservasi->id_meja)->first();
-            $meja_lama->status_meja = $status_lama;
-            $meja_lama->save();
+            // $meja_lama = Meja::where('id_meja', $reservasi->id_meja)->first();
+            // $meja_lama->status_meja = $status_lama;
+            // $meja_lama->save();
             // update meja baru
             $meja_baru = Meja::where('id_meja', $updateData['id_meja'])->first();
+
+            // var_dump($updateData['id_meja']);
             $meja_baru->status_meja = $status_baru;
             $meja_baru->save();
-            var_dump($status_baru);
         }
 
         if($validate->fails())              

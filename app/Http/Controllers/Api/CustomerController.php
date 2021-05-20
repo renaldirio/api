@@ -95,7 +95,7 @@ class CustomerController extends Controller
 
         if($customer->delete()){
             return response([
-                'message' => 'Delete Item Success',
+                'message' => 'Delete customer Success',
                 'data' => $customer,
             ],200);
         }

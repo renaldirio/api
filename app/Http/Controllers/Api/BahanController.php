@@ -22,7 +22,7 @@ class BahanController extends Controller
 
         $bahan = Bahan::create($storeData);
         return response([
-            'meesage' => 'Berhasil menambahkan Bahan karyawan',
+            'message' => 'Berhasil menambahkan Bahan',
             'data' => $bahan,
         ],200);    
     }

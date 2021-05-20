@@ -78,7 +78,7 @@ class MenuController extends Controller
                 // ]
             );
             return response([
-                'message' => 'Add Menu Success',
+                'message' => 'Berhasil menambahkan menu',
                 'data' => $menu
             ],200);
         // };

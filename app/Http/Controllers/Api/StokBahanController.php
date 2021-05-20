@@ -108,7 +108,7 @@ class StokBahanController extends Controller
         $stokbahan = StokBahan::find($cari_stokbahan)->delete();
         if(!is_null($stokbahan)){
             return response ([
-                'message' => 'Delete Bahan success',
+                'message' => 'Delete Stok Bahan success',
                 'data' => $stokbahan
             ],200);
         }

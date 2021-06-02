@@ -10,85 +10,93 @@ use App\Karyawan;
 
 use Illuminate\Support\Facades\Auth;
 
-use Validator;
+use Illuminate\Support\Facades\Validator;
 
 class KaryawanController extends Controller
 {
-   
-    public function update(Request $request, $cari){
+
+    public function update(Request $request, $cari)
+    {
         $karyawan = Karyawan::find($cari);
-        if(is_null($karyawan)){
+        if (is_null($karyawan)) {
             return response([
                 'message' => 'karyawan Not Found',
                 'data' => null
-            ],404);
+            ], 404);
         }
 
         $updateData = $request->all();
-        $validate = Validator::make($updateData,[
-           'nama_karyawan'  => 'required',
-           'jk_karyawan'  => 'required',
-           'telp_karyawan' => 'required|digits_between:10,13|numeric|starts_with:08',
-           'email_karyawan' => 'required|email:rfc,dns',
-           //'password'=> 'required'
-           'tgl_bergabung' => 'required|date_format:Y-m-d',
-           'status_karyawan' => 'required',
-           'id_jabatan' => 'required'         
+        $validate = Validator::make($updateData, [
+            'nama_karyawan'  => 'required',
+            'jk_karyawan'  => 'required',
+            'telp_karyawan' => 'required|digits_between:10,13|numeric|starts_with:08',
+            'email_karyawan' => 'required|email:rfc,dns',
+            //'password'=> 'required'
+            'tgl_bergabung' => 'required|date_format:Y-m-d',
+            'status_karyawan' => 'required',
+            'id_jabatan' => 'required'
         ]);
 
-        if($validate->fails())              
-            return response(['message' => $validate->errors()],400);
-        
-        $karyawan ->nama_karyawan = $updateData['nama_karyawan'];
-        $karyawan ->jk_karyawan = $updateData['jk_karyawan'];    
-        $karyawan ->telp_karyawan = $updateData['telp_karyawan'];
-        $karyawan ->email_karyawan = $updateData['email_karyawan'];
-        $karyawan ->tgl_bergabung = $updateData['tgl_bergabung'];
-        $karyawan ->status_karyawan = $updateData['status_karyawan'];
-        $karyawan ->id_jabatan = $updateData['id_jabatan'];
+        if ($validate->fails())
+            return response(['message' => $validate->errors()], 400);
 
-        if($karyawan->save()){
+        $karyawan->nama_karyawan = $updateData['nama_karyawan'];
+        $karyawan->jk_karyawan = $updateData['jk_karyawan'];
+        $karyawan->telp_karyawan = $updateData['telp_karyawan'];
+        $karyawan->email_karyawan = $updateData['email_karyawan'];
+        $karyawan->tgl_bergabung = $updateData['tgl_bergabung'];
+        $karyawan->status_karyawan = $updateData['status_karyawan'];
+        $karyawan->id_jabatan = $updateData['id_jabatan'];
+
+        if ($karyawan->save()) {
             return response([
                 'message' => 'Update karyawan Success',
                 'data' => $karyawan,
-            ],200);
+            ], 200);
         }
 
         return response([
             'message' => 'Update karyawan Failed',
-            'data' => null,    
-            ],400);
-        }
-    
-    public function index(){
+            'data' => null,
+        ], 400);
+    }
+
+    public function index()
+    {
         $karyawan = Karyawan::all();
         // $karyawan = Karyawan::all();
         $karyawan = Karyawan::join('jabatan', 'karyawan.id_jabatan', '=', 'jabatan.id_jabatan')
-        ->select('karyawan.id_karyawan','karyawan.nama_karyawan', 'jabatan.nama_jabatan',
-        'karyawan.jk_karyawan', 'karyawan.telp_karyawan',
-        'karyawan.email_karyawan', 'karyawan.tgl_bergabung',
-        'karyawan.status_karyawan', 'karyawan.password')->get();
-        $karyawanCount = $karyawan ->count();
-        if(count($karyawan)>0){
+            ->select(
+                'karyawan.id_karyawan',
+                'karyawan.nama_karyawan',
+                'jabatan.nama_jabatan',
+                'karyawan.jk_karyawan',
+                'karyawan.telp_karyawan',
+                'karyawan.email_karyawan',
+                'karyawan.tgl_bergabung',
+                'karyawan.status_karyawan',
+                'karyawan.password'
+            )->get();
+        $karyawanCount = $karyawan->count();
+        if (count($karyawan) > 0) {
             return response([
                 'count' => $karyawanCount,
                 'message' => 'Retrieve All Success',
                 'data' => $karyawan
-            ],200);
+            ], 200);
         }
 
         return response([
             'data' => null
-        ],404);
-
+        ], 404);
     }
-    
-    public function show($cari) {
-        $karyawan = Karyawan::  join('jabatan', 'karyawan.id_jabatan', '=' ,'jabatan.id_jabatan') -> select('karyawan.*', 'nama_jabatan') ->
-                            where('id_jabatan','like',$cari,'or','nama_karyawan','like','%'.$cari.'%')->get();
+
+    public function show($cari)
+    {
+        $karyawan = Karyawan::join('jabatan', 'karyawan.id_jabatan', '=', 'jabatan.id_jabatan')->select('karyawan.*', 'nama_jabatan')->where('id_jabatan', 'like', $cari, 'or', 'nama_karyawan', 'like', '%' . $cari . '%')->get();
         //$karyawan = Karyawan::find($id_karyawan);
 
-        if(!is_null($karyawan)) {
+        if (!is_null($karyawan)) {
             return response([
                 'message' => 'Retrive Karyawan Success',
                 'data' => $karyawan
@@ -101,12 +109,13 @@ class KaryawanController extends Controller
         ], 404);
     }
 
-    public function store(Request $request){
+    public function store(Request $request)
+    {
         $storeData = $request->all();
-        $validate = Validator::make($storeData,[
+        $validate = Validator::make($storeData, [
             'nama_karyawan'  => 'required',
             'jk_karyawan'  => 'required',
-            'telp_karyawan' => 'required|digits_between:10,13|numeric|starts_with:08',           
+            'telp_karyawan' => 'required|digits_between:10,13|numeric|starts_with:08',
             'email_karyawan' => 'required|email:rfc,dns',
             'password' => 'required',
             'tgl_bergabung' => 'required|date_format:Y-m-d',
@@ -114,8 +123,8 @@ class KaryawanController extends Controller
             'id_jabatan' => 'required',
         ]);
 
-        if($validate->fails())              
-            return response(['message' => $validate->errors()],400);
+        if ($validate->fails())
+            return response(['message' => $validate->errors()], 400);
 
         $storeData['password'] = bcrypt($request->password);
 
@@ -123,14 +132,15 @@ class KaryawanController extends Controller
         return response([
             'message' => 'Add Karyawan Success',
             'data' => $karyawan,
-        ],200);
+        ], 200);
     }
 
     // DEACTIVATE ACCOUNT
-    public function resign($id){
+    public function resign($id)
+    {
         $karyawan = Karyawan::find($id);
 
-        if(is_null($karyawan)){
+        if (is_null($karyawan)) {
             return response([
                 'message' => 'Karyawan Not Found',
                 'data' => null
@@ -139,7 +149,7 @@ class KaryawanController extends Controller
 
         $karyawan->status_karyawan = 'Non-Aktif';
 
-        if($karyawan->save()){
+        if ($karyawan->save()) {
             return response([
                 'message' => 'Resign Account Success',
                 'data' => $karyawan
@@ -151,6 +161,4 @@ class KaryawanController extends Controller
             'data' => null
         ], 400);
     }
-
-
 }

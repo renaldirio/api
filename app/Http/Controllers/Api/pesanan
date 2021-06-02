@@ -1,0 +1,523 @@
+<?php
+
+namespace App\Http\Controllers\Api;
+
+use App\Http\Controllers\Controller;
+use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
+use Illuminate\Support\Facades\DB;
+use Validator;
+use App\Pesanan_customer;
+use App\Menu;
+use App\Transaksi_pembayaran;
+use App\Reservasi;
+use Carbon\Carbon;
+use App\Stok_Terbuang;
+use App\Bahan;
+
+class PesananController extends Controller
+{
+    public function indexPesanan()
+    {
+        $pesanan = DB::table('pesanan_customer')
+        ->select('pesanan_customer.id','data_reservasi.id_meja','data_menu.nama_menu','pesanan_customer.jumlah_pesanan','pesanan_customer.tgl_pesan','pesanan_customer.jam_pesan','pesanan_customer.status_cooking')
+        ->join('data_menu','pesanan_customer.id_menu','data_menu.id')
+        ->join('data_reservasi','pesanan_customer.id_reservasi','data_reservasi.id')
+        ->join('transaksi_pembayaran','data_reservasi.id','transaksi_pembayaran.id_reservasi')
+        ->get();
+
+        if(count($pesanan) > 0){
+            return response([
+                'message' => 'Retrieve All Success',
+                'data' => $pesanan
+            ],200);
+        }
+
+        return response([
+            'message' => 'Empty',
+            'data' => null
+        ],404);
+    }
+    
+    public function indexTransaksi()
+    {
+        $pesanan = DB::table('pesanan_customer')
+        // ->select('pesanan_customer.id','data_reservasi.id_meja','data_menu.nama_menu','pesanan_customer.jumlah_pesanan','pesanan_customer.tgl_pesan','pesanan_customer.jam_pesan','pesanan_customer.status_cooking')
+        ->join('data_menu','pesanan_customer.id_menu','data_menu.id')
+        ->join('data_reservasi','pesanan_customer.id_reservasi','data_reservasi.id')
+        ->join('transaksi_pembayaran','data_reservasi.id','transaksi_pembayaran.id_reservasi')
+        ->get();
+
+        if(count($pesanan) > 0){
+            return response([
+                'message' => 'Retrieve All Success',
+                'data' => $pesanan
+            ],200);
+        }
+
+        return response([
+            'message' => 'Empty',
+            'data' => null
+        ],404);
+    }
+
+    public function store(Request $request)
+    {
+        $tgl_Skrg = Carbon::now();
+        $storeData = $request->all();
+        $jam_Skrg = Carbon::now()->format('d-m-Y');
+        
+        $validate = Validator::make($storeData, [
+            'id_menu'=> 'required|numeric',
+            'id_transaksi'=> 'numeric',
+            'id_reservasi'=> 'required|numeric',
+            'status_cooking'=> 'max:60',
+            'jumlah_pesanan' => 'numeric',
+        ]);
+        $storeData['tgl_pesan'] = $tgl_Skrg;
+        $storeData['jam_pesan'] = $tgl_Skrg;
+        
+        $harga_menu = Menu::find($storeData['id_menu'])->harga_menu;  
+        $hargaSmtr = Transaksi_pembayaran::find($storeData['id_transaksi']);
+        $storeData['total_harga'] = $harga_menu * $storeData['jumlah_pesanan'];
+        $hargaSmtr->hargaSmtr = $hargaSmtr->hargaSmtr + $storeData['total_harga'];
+        $hargaSmtr->save();
+        
+        $bahan = Menu::find($storeData['id_menu'])->id_bahan;  
+        $servingSize = Menu::find($storeData['id_menu'])->serving_size; 
+        
+        $pesanan = Pesanan_customer::create($storeData);
+
+        $stokTerjual = new Stok_Terbuang;
+        $stokTerjual->id_bahan = $bahan;
+        $stokTerjual->id_pesanan = $pesanan->id;
+        $stokTerjual->quantity = $servingSize;
+        $stokTerjual->tgl_keluar = $tgl_Skrg;
+        $stokTerjual->statusStok = 'Terjual';
+        $stokTerjual->save();
+        
+        $transaksi= Transaksi_pembayaran::find($storeData['id_transaksi']);
+        $hitungItem = DB::table('transaksi_pembayaran')
+        ->select('pesanan_customer.jumlah_pesanan')
+        ->join('pesanan_customer','transaksi_pembayaran.id','pesanan_customer.id_transaksi')
+        ->where('pesanan_customer.id_reservasi',$storeData['id_transaksi'])
+        ->where('transaksi_pembayaran.total_transaksi',NULL)
+        ->sum('pesanan_customer.jumlah_pesanan');
+        
+         $hitungMenu = DB::table('transaksi_pembayaran')
+        ->select('pesanan_customer.jumlah_pesanan')
+        ->join('pesanan_customer','transaksi_pembayaran.id','pesanan_customer.id_transaksi')
+        ->where('pesanan_customer.id_reservasi',$storeData['id_transaksi'])
+        ->where('transaksi_pembayaran.total_transaksi',NULL)
+        ->count();
+        $transaksi->jumlah_item = $hitungItem;
+        $transaksi->jumlah_menu = $hitungMenu;
+        $transaksi->save();
+        
+        if($validate->fails())
+            return response(['message' => $validate->errors()],400);
+ 
+        return response([
+            'message' => 'Pesanan berhasil ditambahkan!',
+            'data' => [$pesanan],
+        ],200);
+    }
+    
+    public function decrementItem($id){
+        $cart = Pesanan_customer::find($id);
+        
+        $servingSize = Menu::where('id','=', $cart->id_menu)->value('serving_size');
+        $price = Menu::where('id','=', $cart->id_menu)->value('harga_menu');
+
+        $cart->jumlah_pesanan = $cart->jumlah_pesanan - 1;
+        $cart->total_harga = $cart->total_harga - $price;
+        $cart->save();
+        
+        $stok = Stok_Terbuang::where('id_pesanan','=', $cart->id)->first();
+        // dd($stok);
+        $stok->quantity = $servingSize * $cart->jumlah_pesanan;
+        $stok->save();
+        
+        $idBahan = Stok_Terbuang::where('id_pesanan','=', $cart->id)->value('id_bahan');
+        $bahan = Bahan::where('id','=', $idBahan)->first();
+        // dd($stok);
+        $bahan->stok_bahan = $bahan->stok_bahan + $servingSize;
+        $bahan->save();
+        
+        $transaksi= Transaksi_pembayaran::find($cart->id_transaksi);
+        $transaksi->hargaSmtr = $transaksi->hargaSmtr - $price;
+        $hitungItem = DB::table('transaksi_pembayaran')
+        ->select('pesanan_customer.jumlah_pesanan')
+        ->join('pesanan_customer','transaksi_pembayaran.id','pesanan_customer.id_transaksi')
+        ->where('pesanan_customer.id_reservasi',$cart->id_reservasi)
+        ->where('transaksi_pembayaran.total_transaksi',NULL)
+        ->sum('pesanan_customer.jumlah_pesanan');
+        
+         $hitungMenu = DB::table('transaksi_pembayaran')
+        ->select('pesanan_customer.jumlah_pesanan')
+        ->join('pesanan_customer','transaksi_pembayaran.id','pesanan_customer.id_transaksi')
+        ->where('pesanan_customer.id_reservasi',$cart->id_reservasi)
+        ->where('transaksi_pembayaran.total_transaksi',NULL)
+        ->count();
+        $transaksi->jumlah_item = $hitungItem;
+        $transaksi->jumlah_menu = $hitungMenu;
+        $transaksi->save();
+        
+        
+        // if($cart->save()){
+        //     return response([
+        //         'message' => 'Berhasil Mengurangi Pesanan!',
+        //         'data' => $cart
+        //     ],200);
+        // }
+
+        return response([
+            'message' => 'Berhasil!',
+            'data' => $cart
+        ],404);
+    }
+    
+    public function incrementItem($id){
+        $cart = Pesanan_customer::find($id);
+        
+        $servingSize = Menu::where('id','=', $cart->id_menu)->value('serving_size');
+        $price = Menu::where('id','=', $cart->id_menu)->value('harga_menu');
+
+        $cart->jumlah_pesanan = $cart->jumlah_pesanan + 1;
+        $cart->total_harga = $cart->total_harga + $price;
+        $cart->save();
+        
+        $stok = Stok_Terbuang::where('id_pesanan','=', $cart->id)->first();
+        // dd($stok);
+        $stok->quantity = $servingSize * $cart->jumlah_pesanan;
+        $stok->save();
+        
+        $idBahan = Stok_Terbuang::where('id_pesanan','=', $cart->id)->value('id_bahan');
+        $bahan = Bahan::where('id','=', $idBahan)->first();
+        // dd($stok);
+        $bahan->stok_bahan = $bahan->stok_bahan - $stok->quantity;
+        $bahan->save();
+        
+        $transaksi= Transaksi_pembayaran::find($cart->id_transaksi);
+        $transaksi->hargaSmtr = $transaksi->hargaSmtr + $price;
+        $hitungItem = DB::table('transaksi_pembayaran')
+        ->select('pesanan_customer.jumlah_pesanan')
+        ->join('pesanan_customer','transaksi_pembayaran.id','pesanan_customer.id_transaksi')
+        ->where('pesanan_customer.id_reservasi',$cart->id_reservasi)
+        ->where('transaksi_pembayaran.total_transaksi',NULL)
+        ->sum('pesanan_customer.jumlah_pesanan');
+        // dd($hitungItem);
+         $hitungMenu = DB::table('transaksi_pembayaran')
+        ->select('pesanan_customer.jumlah_pesanan')
+        ->join('pesanan_customer','transaksi_pembayaran.id','pesanan_customer.id_transaksi')
+        ->where('pesanan_customer.id_reservasi',$cart->id_reservasi)
+        ->where('transaksi_pembayaran.total_transaksi',NULL)
+        ->count();
+        
+        // dd($hitungMenu);
+        $transaksi->jumlah_item = $hitungItem;
+        $transaksi->jumlah_menu = $hitungMenu;
+        $transaksi->save();
+        
+        // if($cart->save()){
+        //     return response([
+        //         'message' => 'Berhasil Mengurangi Pesanan!',
+        //         'data' => $cart
+        //     ],200);
+        // }
+        
+        return response([
+            'message' => 'Berhasil!',
+            'data' => $cart
+        ],404);
+    }
+    
+
+    public function show($idMeja)
+    {
+        $pesanan = DB::table('data_menu')
+        ->select ('pesanan_customer.id','data_menu.nama_menu', 'pesanan_customer.jumlah_pesanan', 'data_menu.harga_menu','data_menu.gambar','pesanan_customer.total_harga')
+        ->join('pesanan_customer','data_menu.id','pesanan_customer.id_menu')
+        ->join('data_reservasi','pesanan_customer.id_reservasi','data_reservasi.id')
+        ->join('transaksi_pembayaran','data_reservasi.id_transaksi','transaksi_pembayaran.id')
+        ->where('transaksi_pembayaran.total_transaksi',NULL)
+        ->where('data_reservasi.id',$idMeja)
+        ->get();
+
+        if(!is_null($pesanan)){
+            return response([
+                'message' => 'Berhasil Menampilkan data!',
+                'data' => $pesanan
+            ],200);
+        }
+
+        return response([
+            'message' => 'Pesanan tidak ditemukan!',
+            'data' => null
+        ],404);
+    }
+
+    public function updateWeb(Request $request, $id){
+
+        $pesanan = Pesanan_customer::find($id);
+
+        if(is_null($pesanan)){
+        return response([
+            'message' => 'Pesanan tidak ditemukan!',
+            'data' => null
+            ],404);
+        }
+ 
+        $updateData = $request->all();
+
+        $validate = Validator::make($updateData, [
+            'status_cooking'=> 'required|max:60',
+            ]);
+
+        $pesanan->status_cooking = $updateData['status_cooking'];
+ 
+        if($validate->fails())
+            return response(['message' => $validate->errors()],400);
+ 
+        if($pesanan->save()){
+            return response([
+                'message' => 'Berhasil Mengupdate Pesanan',
+                'data' => $pesanan,
+            ],200);
+        }
+
+        return response([
+         'message' => 'Gagal Mengupdate Pesanan',
+         'data' => null,
+         ],400);
+    }
+
+    public function softDelete($id){
+        $pesanan= Pesanan_customer::find($id);
+        if(is_null($pesanan)){
+            return response([
+                'message' => 'Gagal Menghapus pesanan',
+                'data' => null
+            ],404);
+        }
+ 
+        if($pesanan->delete()){
+            return response([
+                'message' => 'Berhasil Menghapus pesanan',
+                'data' => $pesanan,
+            ],200);
+        }
+ 
+        return response([
+            'message' => 'Gagal Menghapus pesanan',
+            'data' => null,
+        ],400);
+    }
+    
+    public function destroy($id){
+        $pesanan = Pesanan_customer::find($id);
+        
+        $servingSize = Menu::where('id','=', $pesanan->id_menu)->value('serving_size');
+        $stok = Stok_Terbuang::where('id_pesanan','=', $pesanan->id)->value('quantity');
+        // dd($stok);
+        
+        $idBahan = Stok_Terbuang::where('id_pesanan','=', $pesanan->id)->value('id_bahan');
+        $bahan = Bahan::where('id','=', $idBahan)->first();
+        // dd($stok);
+        $bahan->stok_bahan = $bahan->stok_bahan + $stok;
+        $bahan->save();
+ 
+        if(is_null($pesanan)){
+            return response([
+                'message' => 'Gagal Menghapus pesanan',
+                'data' => null
+            ],404);
+        }
+
+        if($pesanan->delete()){
+            return response([
+                'message' => 'Berhasil Menghapus pesanan',
+                'data' => $pesanan,
+            ],200);
+        }
+
+        return response([
+            'message' => 'Gagal Menghapus pesanan',
+            'data' => null,
+        ],400);
+    }
+    
+    public function laporanPendapatanBulanan($tahun)
+    {
+        for($i=1;$i<=12;$i++){
+        
+            $makanan[$i] = DB::table('pesanan_customer')
+            ->join('data_menu', 'data_menu.id', '=', 'pesanan_customer.id_menu')
+            ->selectRaw('ifnull(sum(pesanan_customer.total_harga), null) as subtotalMakan')
+            ->where('data_menu.tipe_makanan', '=', 'Makanan Utama')
+            ->where('data_menu.deleted_at', '=', null)
+            ->whereMonth('pesanan_customer.tgl_pesan', $i)
+            ->whereYear('pesanan_customer.tgl_pesan', $tahun)
+            ->first();
+
+            $sideDish[$i] = DB::table('pesanan_customer')
+            ->join('data_menu', 'data_menu.id', '=', 'pesanan_customer.id_menu')
+            ->selectRaw('ifnull(sum(pesanan_customer.total_harga), null) as subtotalSide')
+            ->where('data_menu.tipe_makanan', '=', 'Side Dish')
+            ->where('data_menu.deleted_at', '=', null)
+            ->whereMonth('pesanan_customer.tgl_pesan', $i)
+            ->whereYear('pesanan_customer.tgl_pesan', $tahun)
+            ->first();
+            
+            $minuman[$i] = DB::table('pesanan_customer')
+            ->join('data_menu', 'data_menu.id', '=', 'pesanan_customer.id_menu')
+            ->selectRaw('ifnull(sum(pesanan_customer.total_harga), null) as subtotalMinum')
+            ->where('data_menu.tipe_makanan', '=', 'Minuman')
+            ->where('data_menu.deleted_at', '=', null)
+            ->whereMonth('pesanan_customer.tgl_pesan', $i)
+            ->whereYear('pesanan_customer.tgl_pesan', $tahun)
+            ->first();
+
+            $pendapatan[$i] = $makanan[$i]->subtotalMakan + 
+            $sideDish[$i]->subtotalSide + 
+            $minuman[$i]->subtotalMinum;
+            
+            if($pendapatan[$i] == 0)
+                $pendapatan[$i] = null;
+            
+            if($i == 1)
+                $bulan='Januari';
+            else if($i == 2)
+                $bulan='Februari';
+            else if($i == 3)
+                $bulan='Maret';
+            else if($i == 4)
+                $bulan='April';
+            else if($i == 5)
+                $bulan='Mei';
+            else if($i == 6)
+                $bulan='Juni';
+            else if($i == 7)
+                $bulan='Juli';
+            else if($i == 8)
+                $bulan='Agustus';
+            else if($i == 9)
+                $bulan='September';
+            else if($i == 10)
+                $bulan='Oktober';
+            else if($i == 11)
+                $bulan='November';
+            else if($i == 12)
+                $bulan='Desember';
+                
+            // if($makanan[$i]->subtotalMakan==0 && $sideDish[$i]->subtotalSide==0 && $minuman[$i]->subtotalMinum==0 && $pendapatan[$i] == 0){
+            //     $makanan[$i]->subtotalMakan= null;
+            //     $sideDish[$i]->subtotalSide= null;
+            //     $minuman[$i]->subtotalMinum= null;
+            //     $pendapatan[$i] = null;
+            // }
+            // else if($makanan[$i]->subtotalMakan==0 || $sideDish[$i]->subtotalSide==0){
+            //     $makanan[$i]->subtotalMakan= null;
+            //     $sideDish[$i]->subtotalSide= null;
+            // }
+            // else if($makanan[$i]->subtotalMakan==0 || $minuman[$i]->subtotalMinum==0){
+            //     $makanan[$i]->subtotalMakan= null;
+            //     $minuman[$i]->subtotalMinum= null;
+            // }
+            // else if($sideDish[$i]->subtotalSide==0 || $minuman[$i]->subtotalMinum==0){
+            //     $sideDish[$i]->subtotalSide= null;
+            //     $minuman[$i]->subtotalMinum= null;
+            // }
+            
+            $pendapatanbln[$i] = array(
+               "bulan" => $bulan,
+               "makanan" => $makanan[$i]->subtotalMakan,
+               "sidedish" => $sideDish[$i]->subtotalSide,
+               "minuman" => $minuman[$i]->subtotalMinum,
+               "total" => $pendapatan[$i]
+            );
+        }
+        
+            return response([
+                'message' => 'Tampil laporan pendapatan bulanan',
+                'data' => $pendapatanbln,
+            ], 200);
+        
+            return response([
+                'message' => 'Data kosong!',
+                'data' => null
+            ], 404);        
+    }
+    
+    public function laporanPendapatanTahun($tahunAwal,$tahunAkhir){
+     
+        $j=0;
+        for($i=$tahunAwal;$i<=$tahunAkhir;$i++){
+             $makanan[$i] = DB::table('pesanan_customer')
+            ->join('data_menu', 'data_menu.id', '=', 'pesanan_customer.id_menu')
+            ->selectRaw('ifnull(sum(pesanan_customer.total_harga), 0) as subtotalMakan')
+            ->where('data_menu.tipe_makanan', '=', 'Makanan Utama')
+            ->whereYear('pesanan_customer.tgl_pesan', $i)
+            ->first();
+          
+
+            $sideDish[$i] = DB::table('pesanan_customer')
+            ->join('data_menu', 'data_menu.id', '=', 'pesanan_customer.id_menu')
+            ->selectRaw('ifnull(sum(pesanan_customer.total_harga), 0) as subtotalSide')
+            ->where('data_menu.tipe_makanan', '=', 'Side Dish')
+            ->whereYear('pesanan_customer.tgl_pesan', $i)
+            ->first();
+            
+            $minuman[$i] = DB::table('pesanan_customer')
+            ->join('data_menu', 'data_menu.id', '=', 'pesanan_customer.id_menu')
+            ->selectRaw('ifnull(sum(pesanan_customer.total_harga), 0) as subtotalMinum')
+            ->where('data_menu.tipe_makanan', '=', 'Minuman')
+            ->whereYear('pesanan_customer.tgl_pesan', $i)
+            ->first();
+            
+            $pendapatan[$i] = $makanan[$i]->subtotalMakan + 
+            $sideDish[$i]->subtotalSide + 
+            $minuman[$i]->subtotalMinum;
+            
+            if($makanan[$i]->subtotalMakan==0 && $sideDish[$i]->subtotalSide==0 && $minuman[$i]->subtotalMinum==0 && $pendapatan[$i] == 0){
+                $makanan[$i]->subtotalMakan= null;
+                $sideDish[$i]->subtotalSide= null;
+                $minuman[$i]->subtotalMinum= null;
+                $pendapatan[$i] = null;
+            }
+            else if($makanan[$i]->subtotalMakan==0 || $sideDish[$i]->subtotalSide==0){
+                $makanan[$i]->subtotalMakan= null;
+                $sideDish[$i]->subtotalSide= null;
+            }
+            else if($makanan[$i]->subtotalMakan==0 || $minuman[$i]->subtotalMinum==0){
+                $makanan[$i]->subtotalMakan= null;
+                $minuman[$i]->subtotalMinum= null;
+            }
+            else if($sideDish[$i]->subtotalSide==0 || $minuman[$i]->subtotalMinum==0){
+                $sideDish[$i]->subtotalSide= null;
+                $minuman[$i]->subtotalMinum= null;
+            }
+
+            $j++;
+            $pendapatanthn[$i] = array(
+                "i" =>$j,
+                "tahun" => $i,
+                "makanan" => $makanan[$i]->subtotalMakan,
+                "sidedish" => $sideDish[$i]->subtotalSide,
+                "minuman" => $minuman[$i]->subtotalMinum,
+                "total" => $pendapatan[$i]
+            );
+        }
+        
+        return response([
+            'message' => 'Tampil Laporan Pendapatan Tahunan',
+            'data' => $pendapatanthn,
+        ], 200);
+    
+        return response([
+            'message' => 'Data Kosong!',
+            'data' => null
+        ], 404);
+        
+    }
+}

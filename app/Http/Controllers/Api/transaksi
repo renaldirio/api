@@ -1,0 +1,153 @@
+<?php
+
+namespace App\Http\Controllers\Api;
+
+use App\Http\Controllers\Controller;
+use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
+use Illuminate\Support\Facades\DB;
+use Validator;
+use App\Transaksi_pembayaran;
+use Carbon\Carbon;
+use App\Pesanan_customer;
+use App\Reservasi;
+use App\Info_kartu;
+
+
+class TransaksiController extends Controller
+{
+    public function index()
+    {
+        $transaksi = DB::table('transaksi_pembayaran')
+        ->join('data_reservasi','transaksi_pembayaran.id_reservasi','data_reservasi.id')
+        ->join('users','data_reservasi.id_karyawan','users.id')
+        ->join('data_customer','data_reservasi.id_customer','data_customer.id')
+        ->get();
+
+        if(count($transaksi) > 0){
+            return response([
+                'message' => 'Retrieve All Success',
+                'data' => $transaksi
+            ],200);
+        }
+
+        return response([
+            'message' => 'Empty',
+            'data' => null
+        ],404);
+    }
+    
+    public function indexTransaksi()
+    {
+        $transaksi = DB::table('transaksi_pembayaran')
+        ->join('data_reservasi','transaksi_pembayaran.id_reservasi','data_reservasi.id')
+        ->join('users','data_reservasi.id_karyawan','users.id')
+        ->join('data_customer','data_reservasi.id_customer','data_customer.id')
+        ->where('transaksi_pembayaran.stsTransaksi','Lunas')
+        ->get();
+
+        if(count($transaksi) > 0){
+            return response([
+                'message' => 'Retrieve All Success',
+                'data' => $transaksi
+            ],200);
+        }
+
+        return response([
+            'message' => 'Empty',
+            'data' => null
+        ],404);
+    }
+    
+    public function store(Request $request)
+    {
+        $storeData = $request->all();
+       
+        $transaksi = Transaksi_pembayaran::create($storeData);
+
+        return response([
+            'message' => 'Transaksi berhasil ditambahkan!',
+            'data' => $transaksi,
+        ],200);
+    }
+
+    public function update(Request $request, $id){
+        // $idTransaksi= Reservasi::find($id)->id_transaksi;
+        $data_transaksi = Transaksi_pembayaran::find($id);
+
+        if(is_null($data_transaksi)){
+            return response([
+                'message' => 'Data gagal diubah!',
+                'data' => null
+            ],404);
+        }
+
+        $updateData = $request->all();
+
+        $validate = Validator::make($updateData, [
+            'id_kartu' => 'numeric',
+            'id_karyawan' => 'required|numeric',
+            'total_transaksi' => 'numeric',
+            'metode_pembayaran' => 'required|max:60',
+            'kode_edc' => 'max:60',
+        ]);
+        
+        $data_transaksi->id_karyawan= $updateData['id_karyawan'];
+        $data_transaksi->total_transaksi = $updateData['total_transaksi'];
+        $data_transaksi->tgl_transaksi= $updateData['tgl_reservasi'];
+        $data_transaksi->metode_pembayaran = $updateData['metode_pembayaran'];
+        $data_transaksi->stsTransaksi = 'Lunas';
+        
+        if($data_transaksi->metode_pembayaran == 'cash'){
+            $data_transaksi->kode_edc = NULL;
+        }
+        else
+        {
+            $kartu = $updateData['no_kartu'];
+            $id_kartu = Info_kartu::where('no_kartu',$kartu)->first();
+            $data_transaksi->id_kartu = $id_kartu->id;
+            $data_transaksi->kode_edc = $updateData['kode_edc'];
+        }
+
+        if($validate->fails())
+            return response(['message' => $validate->errors()],400);
+ 
+        if($data_transaksi->save()){
+             return response([
+                 'message' => 'Transaksi Berhasil!',
+                 'data' => $data_transaksi,
+                 ],200);
+        }
+ 
+        return response([
+         'message' => 'Reservasi Gagal!',
+         'data' => null,
+         ],400);
+    }
+
+    public function show($id)
+    {
+        $transaksi = DB::table('transaksi_pembayaran')
+        //lengkapin ini
+        ->select ('users.name','data_customer.nama_customer','transaksi_pembayaran.updated_at','transaksi_pembayaran.id','transaksi_pembayaran.jumlah_menu','transaksi_pembayaran.jumlah_item')
+        // ->join('pesanan_customer','transaksi_pembayaran.id','pesanan_customer.id_transaksi')
+        ->join('data_reservasi','transaksi_pembayaran.id_reservasi','data_reservasi.id')
+        ->join('users','data_reservasi.id_karyawan','users.id')
+        ->join('data_customer','data_reservasi.id_customer','data_customer.id')
+        ->where('data_reservasi.id_meja',$id)
+        ->where('transaksi_pembayaran.total_transaksi',NULL)
+        ->get();
+        
+        if(!is_null($transaksi)){
+            return response([
+                'message' => 'Berhasil Menampilkan data!',
+                'data' => $transaksi
+            ],200);
+        }
+
+        return response([
+            'message' => 'Transaksi tidak ditemukan!',
+            'data' => null
+        ],404);
+    }
+}
